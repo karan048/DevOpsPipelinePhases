@@ -1,0 +1,138 @@
+
+
+Kubernetes Cluster Installation Using Kubeadm
+
+
+#Commands to Run on both Master and Worker Node
+
+
+sudo apt-get update
+sudo apt install docker.io -y
+sudo chmod 666 /var/run/docker.sock
+sudo apt-get install -y apt-transport-https ca-certificates curl gnupg
+sudo mkdir -p -m 755 /etc/apt/keyrings
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
+sudo apt update
+sudo apt install -y kubeadm=1.28.1-1.1 kubelet=1.28.1-1.1 kubectl=1.28.1-1.1
+
+
+
+# Containerd configuration (Both Master and Worker Nodes)
+
+wget https://github.com/containerd/containerd/releases/download/v1.6.2/containerd-1.6.2-linux-amd64.tar.gz
+sudo tar Czxvf /usr/local containerd-1.6.2-linux-amd64.tar.gz
+
+
+wget https://raw.githubusercontent.com/containerd/containerd/main/containerd.service
+sudo mv containerd.service /usr/lib/systemd/system/
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now containerd
+
+#sudo systemctl status containerd
+
+wget https://github.com/opencontainers/runc/releases/download/v1.1.1/runc.amd64
+sudo install -m 755 runc.amd64 /usr/local/sbin/runc
+
+sudo mkdir -p /etc/containerd/
+containerd config default | sudo tee /etc/containerd/config.toml
+
+sudo sed -i 's/SystemdCgroup \= false/SystemdCgroup \= true/g' /etc/containerd/config.toml
+
+sudo systemctl restart containerd
+
+
+
+# Kubernetes Cluster Initialization (Master Node Only)
+
+sudo kubeadm init --pod-network-cidr=10.244.0.0/16
+
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+# Here you will get a join command from previous output, run that on worker nodes (Worker Nodes only)
+
+kubeadm join 172.31.52.178:6443 --token <random value> --discovery-token-ca-cert-hash sha256:<random hash value>
+
+
+
+kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.49.0/deploy/static/provider/baremetal/deploy.yaml
+
+
+
+
+Helm Installation (Master Node)
+
+curl https://baltocdn.com/helm/signing.asc | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
+sudo apt-get install apt-transport-https --yes
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
+sudo apt-get update
+sudo apt-get install helm
+
+
+helm repo add stable https://charts.helm.sh/stable
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm search repo prometheus-community
+kubectl create namespace prometheus
+helm install stable prometheus-community/kube-prometheus-stack -n prometheus
+
+
+kubectl get pods -n prometheus
+kubectl get svc -n prometheus
+
+
+kubectl edit service/stable-grafana -n prometheus
+kubectl edit  service/stable-kube-prometheus-sta-prometheus -n prometheus
+
+
+
+# to get the Grafana password
+kubectl get secret --namespace prometheus stable-grafana -o jsonpath="{.data.admin-password}" | base64 --decode
+
+
+
+
+
+Extra Information
+
+kubectl describe statefulset.apps/prometheus-stable-kube-prometheus-sta-prometheus -n prometheus
+
+kubectl get secret prometheus-stable-kube-prometheus-sta-prometheus -n prometheus -o yaml
+
+kubectl exec -it pod/prometheus-stable-kube-prometheus-sta-prometheus-0 -n prometheus -- cat /etc/prometheus/prometheus.yml
+
+kubectl get cm prometheus-stable-kube-prometheus-sta-prometheus-rulefiles-0 -n prometheus -o yaml
+
+
+kubectl describe statefulset.apps/alertmanager-stable-kube-prometheus-sta-alertmanager -n prometheus
+
+
+
+For Operator, Orchestrator for the whole monitoring stack.
+kubectl describe deployment.apps/stable-kube-prometheus-sta-operator -n prometheus
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
